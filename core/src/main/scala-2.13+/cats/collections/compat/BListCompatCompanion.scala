@@ -23,6 +23,7 @@ package cats.collections
 package compat
 
 import scala.collection.IterableOnce
+import scala.collection.mutable.Growable
 
 private[collections] trait BListCompatCompanion {
   def from[A](source: IterableOnce[A]): BList[A] = {
@@ -30,3 +31,13 @@ private[collections] trait BListCompatCompanion {
     BList.from_helper(iter)
   }
 }
+
+private[collections] trait BListCompatCompanionForBuffer[A] extends Growable[A] {
+  private[collections] def appendOne(elmt: A): this.type
+  private[collections] def addAllHelper(xs: Iterator[A]): this.type
+
+  override def addOne(elmt: A): this.type = appendOne(elmt)
+
+  override def addAll(xs: IterableOnce[A]): this.type = addAllHelper(xs.iterator)
+}
+

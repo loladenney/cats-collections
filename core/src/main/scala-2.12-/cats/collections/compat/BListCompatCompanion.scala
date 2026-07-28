@@ -23,11 +23,19 @@ package cats.collections
 package compat
 
 import scala.collection.TraversableOnce
+import scala.collection.generic.Growable
 
 private[collections] trait BListCompatCompanion {
   def from[A](source: TraversableOnce[A]): BList[A] = {
     val iter = source.toIterator
     BList.from_helper(iter)
   }
+}
+private[collections] trait BListCompatCompanionForBuffer[A] extends Growable[A] {
+  private[collections] def appendOne(elmt: A): this.type
+  private[collections] def addAllHelper(xs: Iterator[A]): this.type
 
+  override def +=(elmt: A): this.type = appendOne(elmt)
+
+  override def ++=(xs: TraversableOnce[A]): this.type = addAllHelper(xs.toIterator)
 }

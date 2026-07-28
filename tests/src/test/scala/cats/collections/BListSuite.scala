@@ -314,6 +314,39 @@ class BListSuite extends DisciplineSuite {
     m.traverse(x => if (x < 1001) Some(x) else None)
   }
 
+  test("simple test case for mutable builder") {
+    val builder = BList.newBuilder[Int]
+    for (i <- 0 until 100) {
+      builder += i
+    }
+    val xs = builder.result()
+    assertEquals(xs.toList, (0 until 100).toList)
+  }
+
+  test("empty and single element mutable builder tests") {
+    val builder = BList.newBuilder[Int]
+    assertEquals(BList.newBuilder[Int].result(), BList.Empty)
+    builder += 1
+    assertEquals(builder.result(), BList(1))
+  }
+
+  test("addAll mutable builder tests") {
+    val builder = BList.newBuilder[Int]
+    builder ++= (0 until 100)
+    assertEquals(builder.result(), BList.from(0 until 100))
+  }
+  test("clear test for mutable builder") {
+    val builder = BList.newBuilder[Int]
+    for (i <- 0 until 100) {
+      builder += i
+    }
+    builder.clear()
+    for (i <- 100 until 200) {
+      builder += i
+    }
+    assertEquals(builder.result(), BList.from(100 until 200))
+  }
+
   private def testHomomorphism[A, B: Eq](as: BList[A])(fn: BList[A] => B, gn: List[A] => B): Unit = {
     val la = as.toList
     assert(Eq[B].eqv(fn(as), gn(la)))
