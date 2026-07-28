@@ -40,4 +40,3 @@ private[collections] trait BListCompatCompanionForBuffer[A] extends Growable[A] 
 
   override def addAll(xs: IterableOnce[A]): this.type = addAllHelper(xs.iterator)
 }
-
