@@ -677,9 +677,9 @@ object BList extends compat.BListCompatCompanion {
       }
 
       // for now, the only optimization is checking if either are empty
-      (this, l2) match {
-        case (_, Empty) => this
-        case (_, _)     => go(this).value
+      l2 match {
+        case Empty              => this
+        case _: AbstractImpl[_] => go(this).value
       }
     }
 
@@ -799,18 +799,14 @@ object BList extends compat.BListCompatCompanion {
     }
   }
 
-  def fromList[A](l: List[A]): BList[A] =
-    fromListReverse(l.reverse)
-
+  def fromList[A](l: List[A]): BList[A] = {
+    // fromListReverse(l.reverse)
+    val builder = BList.newBuilder[A]
+    builder ++= l
+    builder.result()
+  }
   def fromListReverse[A](l: List[A]): BList[A] = {
-    @tailrec
-    def go(l: List[A], acc: BList[A]): BList[A] = {
-      l match {
-        case Nil    => acc
-        case h :: t => go(t, acc.prepend(h))
-      }
-    }
-    go(l, BList.empty)
+    fromList(l.reverse)
   }
 
   def apply[A](elems: A*): BList[A] = {
@@ -946,7 +942,6 @@ object BList extends compat.BListCompatCompanion {
 
   }
 
-
   // from is implemented in BListCompatCompanion because 2.12 does not support IterableOnce
   private[collections] def from_helper[A](iter: Iterator[A]): BList[A] = {
     def go(): Eval[BList[A]] =
@@ -1052,7 +1047,9 @@ object BList extends compat.BListCompatCompanion {
                     prefix = List(f(a_prime), impl.tailBList.asInstanceOf[BList[Either[A, B]]])
                   } else {
                     // go(f(a_prime) :: Impl(curoffset+1, impl.block, impl.tailBList) :: tail)
-                    prefix = List(f(a_prime), Impl(curoffset + 1, impl.block, impl.tailBList).asInstanceOf[BList[Either[A, B]]])
+                    prefix = List(f(a_prime),
+                                  Impl(curoffset + 1, impl.block, impl.tailBList).asInstanceOf[BList[Either[A, B]]]
+                    )
                   }
                   curoffset = BlockSize // to break out of loop
               }
