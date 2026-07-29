@@ -403,8 +403,8 @@ object BList extends compat.BListCompatCompanion {
                 Eval.now((lastBlockl1, l2))
               }
             } else { // split isn't in current block
-              Eval.defer(buildLists(idx - (BlockSize - impl.offset), impl.tailBList)).map {
-                _ match { case (l1_tail, l2) => (Impl(impl.offset, impl.block, l1_tail), l2) }
+              Eval.defer(buildLists(idx - (BlockSize - impl.offset), impl.tailBList)).map { case (l1_tail, l2) =>
+                (Impl(impl.offset, impl.block, l1_tail), l2)
               }
             }
         }
@@ -706,7 +706,13 @@ object BList extends compat.BListCompatCompanion {
           case Empty =>
             acc
           case impl: AbstractImpl[A] @unchecked =>
-            loop(impl.tailBList, impl.block.slice(impl.offset, BlockSize).reverse.toList ::: acc)
+            var acc2 = acc
+            var i = impl.offset
+            while (i < BlockSize) {
+              acc2 = impl.block(i) :: acc2
+              i += 1
+            }
+            loop(impl.tailBList, acc2)
         }
       loop(this, Nil)
     }
@@ -818,17 +824,18 @@ object BList extends compat.BListCompatCompanion {
   final class BListBuffer[A] extends Builder[A, BList[A]] with compat.BListCompatCompanionForBuffer[A] {
 
     // im gonna build this array from left to right and if it is not full in result i will copy it over to the right
-    // int is the offset of the next element to be placed
-    private var headContents: (Int, Array[Any]) = (0, new Array[Any](BlockSize))
+    // headoffset is the offset of the next element to be placed
+    private var headOffset: Int = 0
+    private var headArray: Array[Any] = new Array[Any](BlockSize)
     private var tail: BList[A] = BList.empty
     private var prev: MutableImpl[A] = null
     // private var published: Boolean = false
 
     private[collections] def appendOne(elmt: A): this.type = {
-      if (headContents._1 < BlockSize) { // elmt goes in head node
+      if (headOffset < BlockSize) { // elmt goes in head node
         // append this element to the array and increment int
-        headContents._2(headContents._1) = elmt
-        headContents = (headContents._1 + 1, headContents._2)
+        headArray(headOffset) = elmt
+        headOffset += 1
       } else { // elmt goes in one of the tail nodes
         // !!!!! offset is used as the index of the spot for the next element until the block is full, then it is updated to 0
         if (tail.isEmpty) {
@@ -858,7 +865,8 @@ object BList extends compat.BListCompatCompanion {
       // reset everything (make sure references to objects are dropped for gc)
       tail = BList.empty
       prev = null
-      headContents = (0, new Array[Any](BlockSize))
+      headOffset = 0
+      headArray = new Array[Any](BlockSize)
       // published = false
     }
 
@@ -866,17 +874,17 @@ object BList extends compat.BListCompatCompanion {
       // headContent's int is NOT offset for that block.
       // the final blocks's array must also be shifted to the right and the offset shoild be fixed.
       // all other blocks have their offset set to 0 when they are full
-      var headary = headContents._2
-      var headoffset = 0
+      var finalheadary = headArray
+      var finalheadoffset = 0
 
-      if (headContents._1 == 0) { // result is empty
+      if (headOffset == 0) { // result is empty
         Empty
       } else { // result is nonEmpty
-        if (headContents._1 < BlockSize) { // head is incomplete
+        if (headOffset < BlockSize) { // head is incomplete
           // shift stuff over in the head by ( BlockSize - headContents._1 ) spaces and set offset
-          headary = new Array[Any](BlockSize)
-          System.arraycopy(headContents._2, 0, headary, BlockSize - headContents._1, headContents._1)
-          headoffset = BlockSize - headContents._1
+          finalheadary = new Array[Any](BlockSize)
+          System.arraycopy(headArray, 0, finalheadary, BlockSize - headOffset, headOffset)
+          finalheadoffset = BlockSize - headOffset
         } else if (!tail.isEmpty) { // deal with the tail (offset of final block)
           // shift over stuff in final block, and update it's offset
           val ary = new Array[Any](BlockSize)
@@ -888,7 +896,7 @@ object BList extends compat.BListCompatCompanion {
         }
 
         // published = true
-        Impl(headoffset, headary, tail)
+        Impl(finalheadoffset, finalheadary, tail)
       }
     }
 
@@ -896,15 +904,15 @@ object BList extends compat.BListCompatCompanion {
       // val iter = xs.iterator
       while (iter.hasNext) {
         // blah blah blah todo
-        if (tail.isEmpty && headContents._1 < BlockSize) { // head has space
-          var idx = headContents._1
-          headContents._2(idx) = iter.next()
+        if (tail.isEmpty && headOffset < BlockSize) { // head has space
+          var idx = headOffset
+          headArray(idx) = iter.next()
           idx += 1
           while (iter.hasNext && idx < BlockSize) {
-            headContents._2(idx) = iter.next()
+            headArray(idx) = iter.next()
             idx += 1
           }
-          headContents = (idx, headContents._2)
+          headOffset = idx
         } else { // elements will be added to tail
           if (tail.isEmpty) {
             val ary = new Array[Any](BlockSize)
@@ -922,6 +930,7 @@ object BList extends compat.BListCompatCompanion {
                 prev.block(idx) = iter.next()
                 idx += 1
               }
+              prev.offset = idx
             } else { // prev is full
               val ary = new Array[Any](BlockSize)
               var idx = 0
