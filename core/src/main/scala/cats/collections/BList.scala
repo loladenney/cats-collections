@@ -40,7 +40,7 @@ import scala.annotation.unchecked.uncheckedVariance
 import scala.util.hashing.MurmurHash3
 import scala.collection.immutable.LinearSeq
 import org.typelevel.scalaccompat.annotation._
-import scala.collection.mutable.Builder
+import scala.collection.TraversableOnce
 
 sealed abstract class BList[+A] {
   def uncons: Option[(A, BList[A])]
@@ -98,7 +98,7 @@ sealed abstract class BList[+A] {
   def hashCode(): Int
 }
 
-object BList extends compat.BListCompatCompanion {
+object BList {
   // final private[collections] val     <- these are removed for benchmarking differnt blocksizes against eachother
   final private[collections] val BlockSize = 16
   // var BlockSize = 4
@@ -155,7 +155,7 @@ object BList extends compat.BListCompatCompanion {
     final def ++[B >: A](l2: NonEmpty[B]): NonEmpty[B] = concat(l2)
   }
 
-  object NonEmpty extends compat.BListCompatCompanion {
+  object NonEmpty {
     def apply[A](h: A, t: BList[A]): NonEmpty[A] =
       t.prepend(h)
     def unapply[A](l: NonEmpty[A]): Some[(A, BList[A])] =
@@ -288,16 +288,15 @@ object BList extends compat.BListCompatCompanion {
 
   }
 
-  private class MutableImpl[+A](var offset: Int,
-                                var block: Array[A @uncheckedVariance],
+  private class MutableImpl[+A](offset: Int,
+                                block: Array[A @uncheckedVariance],
                                 var tailBList: BList[A] @uncheckedVariance
-  ) extends AbstractImpl[A]()
-  private class Impl[+A](val offset: Int, val block: Array[A @uncheckedVariance], val tailBList: BList[A])
-      extends AbstractImpl[A]()
+  ) extends AbstractImpl[A](offset, block)
+  private class Impl[+A](offset: Int, block: Array[A @uncheckedVariance], val tailBList: BList[A])
+      extends AbstractImpl[A](offset, block)
 
-  abstract private class AbstractImpl[+A]() extends NonEmpty[A] {
-    def offset: Int
-    def block: Array[A @uncheckedVariance]
+  sealed abstract private class AbstractImpl[+A](val offset: Int, val block: Array[A @uncheckedVariance])
+      extends NonEmpty[A] {
     def tailBList: BList[A]
 
     override def equals(other: Any): Boolean =
@@ -821,78 +820,94 @@ object BList extends compat.BListCompatCompanion {
 
   // BList Buffer for mutable builder is in the version specific files
   // behaviour is undefined after result is called, same as for ListBuffer
-  final class BListBuffer[A] extends Builder[A, BList[A]] with compat.BListCompatCompanionForBuffer[A] {
+  final class BListBuffer[A] {
 
     // im gonna build this array from left to right and if it is not full in result i will copy it over to the right
     // headoffset is the offset of the next element to be placed
-    private var headOffset: Int = 0
+    private var headIndex: Int = 0
     private var headArray: Array[Any] = new Array[Any](BlockSize)
     private var tail: BList[A] = BList.empty
     private var prev: MutableImpl[A] = null
+    private var curIndex: Int = 0
+    private var curArray: Array[Any] = new Array[Any](BlockSize)
     // private var published: Boolean = false
 
-    private[collections] def appendOne(elmt: A): this.type = {
-      if (headOffset < BlockSize) { // elmt goes in head node
-        // append this element to the array and increment int
-        headArray(headOffset) = elmt
-        headOffset += 1
-      } else { // elmt goes in one of the tail nodes
-        // !!!!! offset is used as the index of the spot for the next element until the block is full, then it is updated to 0
-        if (tail.isEmpty) {
-          //  make the first prev and set it to be tail and put elmt in it
-          val ary = new Array[Any](BlockSize)
-          ary(0) = elmt
-          prev = MutableImpl(1, ary, null)
-          tail = prev
-        } else { // tail is not empty
-          if (prev.offset < BlockSize) { // prev is not full
-            prev.block(prev.offset) = elmt
-            prev.offset += 1
-          } else { // prev is full
-            // set offset to 0, make the next node, add it to pointer from prev, and update prev
-            val ary = new Array[Any](BlockSize)
-            ary(0) = elmt
-            val nextnode = MutableImpl(1, ary, null)
-            prev.offset = 0
-            prev.tailBList = nextnode
-            prev = nextnode
+    def addOne(elmt: A): this.type = {
+      if (headIndex < BlockSize) { // elmt goes in head node
+        headArray(headIndex) = elmt
+        headIndex += 1
+      } else { // elmt will not go in head node
+        if (curIndex < BlockSize) { // current node is not full
+          curArray(curIndex) = elmt
+          curIndex += 1
+        } else { // current node is full
+          // finish off the full node
+          val finishedNode = MutableImpl(0, curArray, null)
+          if (prev != null) { // have previous node point to the newly completed one
+            prev.tailBList = finishedNode
           }
+          prev = finishedNode
+
+          if (tail.isEmpty) { // fill in tail field with first completed node
+            tail = prev
+          }
+
+          // start new node
+          curArray = new Array[Any](BlockSize)
+          curArray(0) = elmt
+          curIndex = 1
         }
       }
       this
     }
-    override def clear(): Unit = {
+    def clear(): Unit = {
       // reset everything (make sure references to objects are dropped for gc)
       tail = BList.empty
       prev = null
-      headOffset = 0
+      headIndex = 0
       headArray = new Array[Any](BlockSize)
+      curIndex = 0
+      curArray = new Array[Any](BlockSize)
       // published = false
     }
 
-    override def result(): BList[A] = {
+    def result(): BList[A] = {
       // headContent's int is NOT offset for that block.
       // the final blocks's array must also be shifted to the right and the offset shoild be fixed.
       // all other blocks have their offset set to 0 when they are full
       var finalheadary = headArray
       var finalheadoffset = 0
 
-      if (headOffset == 0) { // result is empty
+      if (headIndex == 0) { // result is empty
         Empty
       } else { // result is nonEmpty
-        if (headOffset < BlockSize) { // head is incomplete
+        if (headIndex < BlockSize) { // head is incomplete
           // shift stuff over in the head by ( BlockSize - headContents._1 ) spaces and set offset
           finalheadary = new Array[Any](BlockSize)
-          System.arraycopy(headArray, 0, finalheadary, BlockSize - headOffset, headOffset)
-          finalheadoffset = BlockSize - headOffset
-        } else if (!tail.isEmpty) { // deal with the tail (offset of final block)
-          // shift over stuff in final block, and update it's offset
-          val ary = new Array[Any](BlockSize)
-          System.arraycopy(prev.block, 0, ary, BlockSize - prev.offset, prev.offset)
-
-          prev.block = ary.asInstanceOf[Array[A]]
-          prev.offset = BlockSize - prev.offset
-          prev.tailBList = Empty
+          System.arraycopy(headArray, 0, finalheadary, BlockSize - headIndex, headIndex)
+          finalheadoffset = BlockSize - headIndex
+        } else { // head is complete
+          if (tail.isEmpty && curIndex == 0) { // the tail is empty
+            // do nothing
+          } else if (tail.isEmpty && curIndex > 0) { // there is one tail node and it is not empty
+            val ary = new Array[Any](BlockSize)
+            System.arraycopy(curArray,
+                             0,
+                             ary,
+                             BlockSize - curIndex,
+                             curIndex
+            ) // curArray isnt null because curIndex > 0
+            tail = MutableImpl(BlockSize - curIndex, ary.asInstanceOf[Array[A]], Empty)
+          } else if (curIndex == BlockSize) { // final block is full
+            prev.tailBList = MutableImpl(0, curArray, Empty) // safe because tail is not empty, so prev must not be null
+          } else { // final block is not full
+            val ary = new Array[Any](BlockSize)
+            System.arraycopy(curArray, 0, ary, BlockSize - curIndex, curIndex)
+            prev.tailBList = MutableImpl(BlockSize - curIndex,
+                                         ary.asInstanceOf[Array[A]],
+                                         Empty
+            ) // safe because tail is not empty, so prev must not be null
+          }
         }
 
         // published = true
@@ -900,48 +915,42 @@ object BList extends compat.BListCompatCompanion {
       }
     }
 
-    private[collections] def addAllHelper(iter: Iterator[A]): this.type = { // should be faster than repeatedly calling addOne (maybe)
-      // val iter = xs.iterator
+    @nowarn213("cat=deprecation")
+    @nowarn3("cat=deprecation")
+    def addAll(xs: TraversableOnce[A]): this.type = {
+      val iter = xs.toIterator
       while (iter.hasNext) {
-        // blah blah blah todo
-        if (tail.isEmpty && headOffset < BlockSize) { // head has space
-          var idx = headOffset
-          headArray(idx) = iter.next()
-          idx += 1
-          while (iter.hasNext && idx < BlockSize) {
-            headArray(idx) = iter.next()
-            idx += 1
+        if (headIndex < BlockSize) { // head has space
+          headArray(headIndex) = iter.next()
+          headIndex += 1
+          while (iter.hasNext && headIndex < BlockSize) {
+            headArray(headIndex) = iter.next()
+            headIndex += 1
           }
-          headOffset = idx
-        } else { // elements will be added to tail
-          if (tail.isEmpty) {
-            val ary = new Array[Any](BlockSize)
-            var idx = 0
-            while (iter.hasNext && idx < BlockSize) {
-              ary(idx) = iter.next()
-              idx += 1
+        } else { // head is full
+          if (curIndex < BlockSize) { // current node is not full
+            while (iter.hasNext && curIndex < BlockSize) {
+              curArray(curIndex) = iter.next()
+              curIndex += 1
             }
-            prev = MutableImpl(idx, ary, null)
-            tail = prev
-          } else { // tail is not empty
-            if (prev.offset < BlockSize) { // prev is not full
-              var idx = prev.offset
-              while (iter.hasNext && idx < BlockSize) {
-                prev.block(idx) = iter.next()
-                idx += 1
-              }
-              prev.offset = idx
-            } else { // prev is full
-              val ary = new Array[Any](BlockSize)
-              var idx = 0
-              while (iter.hasNext && idx < BlockSize) {
-                ary(idx) = iter.next()
-                idx += 1
-              }
-              val next = MutableImpl(idx, ary, null)
-              prev.offset = 0
-              prev.tailBList = next
-              prev = next
+          } else { // current node is full
+            // finish off the full node
+            val finishedNode = MutableImpl(0, curArray, null)
+            if (prev != null) { // have previous node point to the newly completed one
+              prev.tailBList = finishedNode
+            }
+            prev = finishedNode
+
+            if (tail.isEmpty) { // fill in tail field with first completed node
+              tail = prev
+            }
+
+            // start new node
+            curIndex = 0
+            curArray = new Array[Any](BlockSize)
+            while (iter.hasNext && curIndex < BlockSize) {
+              curArray(curIndex) = iter.next()
+              curIndex += 1
             }
           }
         }
@@ -949,10 +958,19 @@ object BList extends compat.BListCompatCompanion {
       this
     }
 
+    // aliases
+    def +=(elmt: A): this.type = addOne(elmt)
+    @nowarn213("cat=deprecation")
+    @nowarn3("cat=deprecation")
+    def ++=(xs: TraversableOnce[A]): this.type = addAll(xs)
+
   }
 
   // from is implemented in BListCompatCompanion because 2.12 does not support IterableOnce
-  private[collections] def from_helper[A](iter: Iterator[A]): BList[A] = {
+  @nowarn213("cat=deprecation")
+  @nowarn3("cat=deprecation")
+  def from[A](xs: TraversableOnce[A]): BList[A] = {
+    val iter = xs.toIterator
     def go(): Eval[BList[A]] =
       if (iter.hasNext) {
         val ary = new Array[Any](BlockSize)
@@ -976,7 +994,7 @@ object BList extends compat.BListCompatCompanion {
 
   def empty[A]: BList[A] = Empty
 
-  def newBuilder[A]: Builder[A, BList[A]] =
+  def newBuilder[A]: BListBuffer[A] =
     new BListBuffer[A]
 
   // typeclasses stuff
