@@ -105,7 +105,7 @@ object BList {
   // var BlockSize = 4
 
   case object Empty extends BList[Nothing] {
-    def uncons = None
+    def uncons: None.type = None
     def prepend[B >: Nothing](a: B): BList.NonEmpty[B] = {
       val ary = new Array[Any](BlockSize)
       val offset = BlockSize - 1
@@ -1074,8 +1074,10 @@ object BList {
       def tailRecM[A, B](a: A)(f: (A) => BList[Either[A, B]]): BList[B] = {
         val buf = BList.newBuilder[B]
         @tailrec
-        def go(lists: BList[BList[Either[A, B]]]): Unit = lists match {
-          case BList.NonEmpty(impl: AbstractImpl[_], tail) =>
+        def go(lists: BList[BList[Either[A, B]]]): Unit = (lists: @unchecked) match {
+          case Empty                                       => ()
+          case BList.NonEmpty(BList.Empty, tail)           => go(tail.asInstanceOf[BList[BList[Either[A, B]]]])
+          case BList.NonEmpty(impl: AbstractImpl[_], tail) => {
             // loop over block, progressing to next element when right is reached
             var curoffset = impl.offset
             var prefix: BList[BList[Either[A, B]]] = BList(
@@ -1101,9 +1103,8 @@ object BList {
                   curoffset = BlockSize // to break out of loop
               }
             }
-            go(prefix ++ tail)
-          case BList.NonEmpty(Empty, tail) => go(tail)
-          case Empty                       => ()
+            go(prefix ++ tail.asInstanceOf[BList[BList[Either[A, B]]]])
+          }
         }
         go(BList(f(a)))
         buf.result()
