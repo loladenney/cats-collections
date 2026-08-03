@@ -529,6 +529,13 @@ class BListSuite extends DisciplineSuite {
     }
   )
 
+  property("reverse matches the reverse in toListReverse")(forAll { bList: BList[Int] =>
+    assertEquals(bList.reverse.toList, bList.toListReverse)
+  })
+
+ 
+
+
   // property("generator")(forAll { (xs: BList[Int]) =>
   //   println(xs.size)
   //   println(xs.toStringInBlocks)
