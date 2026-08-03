@@ -49,7 +49,7 @@ sealed abstract class BList[+A] {
   def tailOption: Option[BList[A]]
   def get(idx: Long): Option[A]
   def getUnsafe(idx: Long): A
-  def reverse : BList[A]
+  def reverse: BList[A]
   def splitAt(idx: Int): (BList[A], BList[A])
   def lastOption: Option[A]
   def size: Long
@@ -116,7 +116,7 @@ object BList {
     def tailOption: None.type = None
     def get(idx: Long): None.type = None
     def getUnsafe(idx: Long): Nothing = throw new IndexOutOfBoundsException
-    def reverse : Empty.type = Empty
+    def reverse: Empty.type = Empty
     def splitAt(idx: Int): (Empty.type, Empty.type) = (Empty, Empty)
     def lastOption: None.type = None
     def size: Long = 0
@@ -148,7 +148,7 @@ object BList {
   sealed abstract class NonEmpty[+A] extends BList[A] {
     def head: A
     def tail: BList[A]
-    def reverse : BList.NonEmpty[A]
+    def reverse: BList.NonEmpty[A]
     def map[B](fn: A => B): BList.NonEmpty[B]
     def concat[B >: A](l2: BList[B]): BList.NonEmpty[B]
     def uncons: Some[(A, BList[A])]
@@ -291,7 +291,9 @@ object BList {
 
   }
 
-  private class MutableImpl[+A](offset: Int,block: Array[A @uncheckedVariance],var tailBList: BList[A] @uncheckedVariance
+  private class MutableImpl[+A](offset: Int,
+                                block: Array[A @uncheckedVariance],
+                                var tailBList: BList[A] @uncheckedVariance
   ) extends AbstractImpl[A](offset, block)
   private class Impl[+A](offset: Int, block: Array[A @uncheckedVariance], val tailBList: BList[A])
       extends AbstractImpl[A](offset, block)
@@ -380,22 +382,22 @@ object BList {
       }
       go(idx, this)
     }
-    def reverse : BList.NonEmpty[A] = {
+    def reverse: BList.NonEmpty[A] = {
       @tailrec
-      def go(l:BList[A], acc: BList[A]):BList.NonEmpty[A] = l match {
-        case Empty => acc.asInstanceOf[NonEmpty[A]]
-        case impl: AbstractImpl[A] @unchecked =>  // strategy: prepend blocks with reversed arrays
+      def go(l: BList[A], acc: BList[A]): BList.NonEmpty[A] = l match {
+        case Empty                            => acc.asInstanceOf[NonEmpty[A]]
+        case impl: AbstractImpl[A] @unchecked => // strategy: prepend blocks with reversed arrays
           val ary = new Array[Any](BlockSize)
-          var i :Int = impl.offset
-          var end = BlockSize -1
-          while(i < BlockSize){
+          var i: Int = impl.offset
+          var end = BlockSize - 1
+          while (i < BlockSize) {
             ary(i) = impl.block(end)
             i += 1
             end -= 1
           }
           go(impl.tailBList, Impl(impl.offset, ary, acc))
       }
-      go(this,Empty)
+      go(this, Empty)
     }
     def splitAt(idx: Int): (BList[A], BList[A]) = {
       def buildLists(idx: Int, l: BList[A]): Eval[(BList[A], BList[A])] = {
@@ -1072,11 +1074,11 @@ object BList {
       def tailRecM[A, B](a: A)(f: (A) => BList[Either[A, B]]): BList[B] = {
         val buf = BList.newBuilder[B]
         @tailrec
-        def go(lists: List[BList[Either[A, B]]]): Unit = lists match {
-          case (impl: AbstractImpl[_]) :: tail =>
+        def go(lists: BList[BList[Either[A, B]]]): Unit = lists match {
+          case BList.NonEmpty(impl: AbstractImpl[_], tail) =>
             // loop over block, progressing to next element when right is reached
             var curoffset = impl.offset
-            var prefix: List[BList[Either[A, B]]] = List(
+            var prefix: BList[BList[Either[A, B]]] = BList(
               impl.tailBList.asInstanceOf[BList[Either[A, B]]]
             ) // holds the prefix of the list that goes to the next rec call
             while (curoffset < BlockSize) {
@@ -1089,21 +1091,21 @@ object BList {
                 case Left(a_prime) =>
                   if (curoffset >= BlockSize - 1) {
                     // go(f(a_prime) :: impl.tailBList :: tail
-                    prefix = List(f(a_prime), impl.tailBList.asInstanceOf[BList[Either[A, B]]])
+                    prefix = BList(f(a_prime), impl.tailBList.asInstanceOf[BList[Either[A, B]]])
                   } else {
                     // go(f(a_prime) :: Impl(curoffset+1, impl.block, impl.tailBList) :: tail)
-                    prefix = List(f(a_prime),
-                                  Impl(curoffset + 1, impl.block, impl.tailBList).asInstanceOf[BList[Either[A, B]]]
+                    prefix = BList(f(a_prime),
+                                   Impl(curoffset + 1, impl.block, impl.tailBList).asInstanceOf[BList[Either[A, B]]]
                     )
                   }
                   curoffset = BlockSize // to break out of loop
               }
             }
             go(prefix ++ tail)
-          case Empty :: tail => go(tail)
-          case Nil           => ()
+          case BList.NonEmpty(Empty, tail) => go(tail)
+          case Empty                       => ()
         }
-        go(f(a) :: Nil)
+        go(BList(f(a)))
         buf.result()
       }
     }
