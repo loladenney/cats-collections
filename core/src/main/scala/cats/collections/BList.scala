@@ -47,6 +47,8 @@ sealed abstract class BList[+A] {
   def prepend[B >: A](a: B): BList.NonEmpty[B]
   def headOption: Option[A]
   def tailOption: Option[BList[A]]
+  def headUnsafe: A
+  def tailUnsafe: BList[A]
   def get(idx: Long): Option[A]
   def getUnsafe(idx: Long): A
   def reverse: BList[A]
@@ -69,6 +71,7 @@ sealed abstract class BList[+A] {
   def asSeq: LinearSeq[A]
   def isEmpty: Boolean
   def flatMap[B](fn: A => BList[B]): BList[B]
+  def foreach[B](f: A => B): Unit
   def iterator: Iterator[A]
 
   final def ::[B >: A](a: B): BList.NonEmpty[B] = prepend(a)
@@ -101,8 +104,8 @@ sealed abstract class BList[+A] {
 
 object BList {
   // final private[collections] val     <- these are removed for benchmarking differnt blocksizes against eachother
-  final private[collections] val BlockSize = 16
-  // var BlockSize = 4
+  final private[collections] val BlockSize = 80
+  //var BlockSize = 54
 
   case object Empty extends BList[Nothing] {
     def uncons: None.type = None
@@ -114,6 +117,8 @@ object BList {
     }
     def headOption: None.type = None
     def tailOption: None.type = None
+    def headUnsafe: Nothing = throw new NoSuchElementException // follows scala List's head
+    def tailUnsafe: BList[Nothing] = throw new NoSuchElementException  // follows scala List's tail
     def get(idx: Long): None.type = None
     def getUnsafe(idx: Long): Nothing = throw new IndexOutOfBoundsException
     def reverse: Empty.type = Empty
@@ -136,6 +141,7 @@ object BList {
     def asSeq: LinearSeq[Nothing] = LinearSeq.empty
     def isEmpty: Boolean = true
     def flatMap[B](fn: Nothing => BList[B]): Empty.type = this
+    def foreach[B](f: Nothing => B): Unit = ()
 
     def iterator: Iterator[Nothing] = Iterator.empty
     private[collections] def toStringInBlocks: String = "Empty"
@@ -301,6 +307,7 @@ object BList {
   sealed abstract private class AbstractImpl[+A](val offset: Int, val block: Array[A @uncheckedVariance])
       extends NonEmpty[A] {
     def tailBList: BList[A]
+    private var shared: Boolean = false
 
     override def equals(other: Any): Boolean =
       other match {
@@ -317,10 +324,18 @@ object BList {
     }
     def prepend[B >: A](a: B): BList.NonEmpty[B] = {
       if (offset > 0) {
-        val ary = block.clone().asInstanceOf[Array[B]]
         val nextOffset = offset - 1
-        ary(nextOffset) = a
-        Impl(nextOffset, ary, tailBList)
+        if (shared) { // forking detected
+          val ary = new Array[Any](BlockSize)
+          System.arraycopy(block, offset, ary, offset, BlockSize - offset)
+          ary(nextOffset) = a
+          Impl(nextOffset, ary, tailBList)
+        }
+        else {
+          shared = true
+          block(nextOffset) = a.asInstanceOf[A]
+          Impl(nextOffset, block, tailBList)
+        }
       } else {
         val ary = new Array[Any](BlockSize)
         val offset = BlockSize - 1
@@ -346,6 +361,9 @@ object BList {
     def tailOption: Some[BList[A]] = {
       Some(tail)
     }
+    def headUnsafe: A = head
+    def tailUnsafe: BList[A] = tail
+
     def get(idx: Long): Option[A] = {
       if (idx < 0) { None }
       else {
@@ -387,13 +405,11 @@ object BList {
       def go(l: BList[A], acc: BList[A]): BList.NonEmpty[A] = l match {
         case Empty                            => acc.asInstanceOf[NonEmpty[A]]
         case impl: AbstractImpl[A] @unchecked => // strategy: prepend blocks with reversed arrays
-          val ary = new Array[Any](BlockSize)
+          val ary = impl.block.clone() // zero-ed out memory is consistent under reversal
           var i: Int = impl.offset
-          var end = BlockSize - 1
           while (i < BlockSize) {
-            ary(i) = impl.block(end)
+            ary(i) = impl.block(BlockSize - 1 - (i - offset))
             i += 1
-            end -= 1
           }
           go(impl.tailBList, Impl(impl.offset, ary, acc))
       }
@@ -467,21 +483,19 @@ object BList {
       loop(this).asInstanceOf[NonEmpty[B]]
     }
     def filter(p: A => Boolean): BList[A] = {
-      // this implementation does not condense blocks
-      // maybe there could be a counter where if enough elements are dropped (proportion of total size/total number of nodes?) a condenser could be run on the resulting list
-      def go(l: BList[A]): Eval[BList[A]] = l match {
-        case Empty                 => Eval.now(Empty)
-        case impl: AbstractImpl[A] =>
-          // "optimization" if block remains unchanged (this might not actually speed things up overall, but it skips allocations in this special case)
-          if (impl.block.forall(p)) {
-            return Eval.defer(go(impl.tailBList)).map(Impl(impl.offset, impl.block.asInstanceOf[Array[Any]], _))
+      def go( l: BList[A], prev:Array[Any], prevOffset:Int): Eval[BList[A]] = l match {
+        case Empty                 => 
+          if (prevOffset == BlockSize){
+            Eval.now(Empty) // prev is invalid
           }
-
+          else {
+            Eval.now(Impl(prevOffset, prev, Empty))
+          }
+        case impl: AbstractImpl[A] =>
+          
           var i = BlockSize - 1
           var offset_in_newblock = BlockSize
-          val newblock = new Array[Any](
-            BlockSize
-          ) // there is at least one element removed, so we need to zero out arbitrarily bigger prefix
+          val newblock = new Array[Any](BlockSize) 
           // iterate backwards
           while (i >= impl.offset) {
             if (p(impl.block(i))) {
@@ -491,39 +505,24 @@ object BList {
             i -= 1
           }
 
-          if (offset_in_newblock == BlockSize) { // new block is empty so we skip it
-            Eval.defer(go(impl.tailBList))
-          } else {
-            Eval.defer(go(impl.tailBList)).map(Impl(offset_in_newblock, newblock, _))
+          if (offset_in_newblock == BlockSize) { // all elements were filtered out, node is skipped
+             Eval.defer(go(impl.tailBList, prev, prevOffset))
+          }
+          else if ((BlockSize - offset_in_newblock) + (BlockSize - prevOffset) <= BlockSize){ // improve arithmetic
+            // combine prev with new and rec call
+            System.arraycopy(prev, prevOffset, newblock, offset_in_newblock - (BlockSize -  prevOffset), BlockSize -  prevOffset)
+            Eval.defer(go(impl.tailBList, newblock, offset_in_newblock - (BlockSize -  prevOffset)))
+          }
+          else {
+            // add previous to acc and make rec call
+            Eval.defer(go(impl.tailBList, newblock, offset_in_newblock)).map(Impl(prevOffset, prev, _))
           }
       }
-      go(this).value
-    }
-    // this whole thing is just a copy paste of filter, maybe i should remove it
-    def filterNot(p: A => Boolean): BList[A] = {
-      def go(l: BList[A]): Eval[BList[A]] = l match {
-        case Empty                 => Eval.now(Empty)
-        case impl: AbstractImpl[A] =>
-          // i will not condense blocks. but maybe i could have a counter where if enough elements are dropped i could run a condenser on the resulting list automatically
-          var i = BlockSize - 1
-          var offset_in_newblock = BlockSize
-          val newblock = new Array[Any](BlockSize)
-          // iterate backwards
-          while (i >= impl.offset) {
-            if (!p(impl.block(i))) {
-              offset_in_newblock -= 1
-              newblock(offset_in_newblock) = impl.block(i)
-            }
-            i -= 1
-          }
 
-          if (offset_in_newblock == BlockSize) { // new block is empty so we skip it
-            Eval.defer(go(impl.tailBList))
-          } else {
-            Eval.defer(go(impl.tailBList)).map(Impl(offset_in_newblock, newblock, _))
-          }
-      }
-      go(this).value
+      go(this,new Array[Any](BlockSize),BlockSize).value // initial values for prev will not affect result because it is handled in the base case
+    }
+    def filterNot(p: A => Boolean): BList[A] = {
+      filter(x => !p(x))
     }
     // adapted from scala List's implementation of collect https://github.com/scala/scala/blob/2.13.x/src/library/scala/collection/immutable/List.scala#L250
     private val partialNotApplied = new Function1[Any, Any] { def apply(x: Any): Any = this }
@@ -761,6 +760,21 @@ object BList {
       val revList = this.toListReverse
       loop(revList.tail, fn(revList.head))
     }
+    def foreach[B](f: A => B): Unit = {
+      @tailrec
+      def loop(l: BList[A]): Unit = {
+        l match {
+          case Empty                 => ()
+          case impl: AbstractImpl[A] =>
+            for (i <- impl.offset until BlockSize) {
+              f(impl.block(i))
+            }
+            loop(impl.tailBList)
+        }
+      }
+      loop(this)
+    }
+
 
     def iterator: Iterator[A] = new BListIterator(this)
 
@@ -825,7 +839,6 @@ object BList {
   }
 
   def fromList[A](l: List[A]): BList[A] = {
-    // fromListReverse(l.reverse)
     val builder = BList.newBuilder[A]
     builder ++= l
     builder.result()
@@ -835,7 +848,9 @@ object BList {
   }
 
   def apply[A](elems: A*): BList[A] = {
-    BList.from(elems) // TODO update this to use builder
+    BList.from(elems)
+    // i dont think getting the varargs array directly will help because we still need to copy it to put it in the blocks
+    // from is better than mutable builder, so not even worth it. 
   }
 
   // BList Buffer for mutable builder is in the version specific files
@@ -850,7 +865,6 @@ object BList {
     private var prev: MutableImpl[A] = null
     private var curIndex: Int = 0
     private var curArray: Array[Any] = new Array[Any](BlockSize)
-    // private var published: Boolean = false
 
     def addOne(elmt: A): this.type = {
       if (headIndex < BlockSize) { // elmt goes in head node
@@ -881,14 +895,12 @@ object BList {
       this
     }
     def clear(): Unit = {
-      // reset everything (make sure references to objects are dropped for gc)
       tail = BList.empty
       prev = null
       headIndex = 0
       headArray = new Array[Any](BlockSize)
       curIndex = 0
       curArray = new Array[Any](BlockSize)
-      // published = false
     }
 
     def result(): BList[A] = {
@@ -930,7 +942,6 @@ object BList {
           }
         }
 
-        // published = true
         Impl(finalheadoffset, finalheadary, tail)
       }
     }

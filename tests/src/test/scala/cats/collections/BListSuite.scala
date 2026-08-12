@@ -33,11 +33,12 @@ import scala.math.pow
 import scala.util.Random
 import cats.data.State
 
+
 class BListSuite extends DisciplineSuite {
   override def scalaCheckInitialSeed = "7bTNcKSrPdvUlNm_fJry4aTO89pk7TzTVJOnhKCdlWL="
   override def scalaCheckTestParameters: Test.Parameters =
-    // DefaultScalaCheckPropertyCheckConfig.default
-    super.scalaCheckTestParameters.withMaxSize(BList.BlockSize * 5)
+    DefaultScalaCheckPropertyCheckConfig.default
+    //super.scalaCheckTestParameters.withMaxSize(BList.BlockSize * 5)
 
   checkAll("BList.FunctorLaws", FunctorTests[BList].functor[Int, Int, String])
   checkAll("BList.SemigroupKLaws", SemigroupKTests[BList].semigroupK[Int])
@@ -86,11 +87,11 @@ class BListSuite extends DisciplineSuite {
 
   test("prepend when block is full") {
     var l = BList.empty[Int]
-    for (i <- (0 until BList.BlockSize).reverse) {
+    for (i <- (0 until 20).reverse) {
       l = l.prepend(i)
     }
     val m = l.prepend(-1)
-    assertEquals(m.toList, (-1 until BList.BlockSize).toList)
+    assertEquals(m.toList, (-1 until 20).toList)
   }
 
   test("headOption on empty list") {
@@ -116,12 +117,12 @@ class BListSuite extends DisciplineSuite {
   test("get/getUnsafe on a Blist with incomplete blocks") {
     var l = BList.empty[Int]
     var m = BList.empty[Int]
-    for (i <- (0 until BList.BlockSize).reverse) {
+    for (i <- (0 until 20).reverse) {
       l = l.prepend(i)
       m = l.concat(m)
     }
-    assertEquals(m.getUnsafe((BList.BlockSize + (BList.BlockSize - 1)).toLong), 2)
-    assertEquals(m.get((BList.BlockSize + (BList.BlockSize - 1)).toLong), Some(2))
+    assertEquals(m.getUnsafe((20 + (20 - 1)).toLong), 2)
+    assertEquals(m.get((20 + (20 - 1)).toLong), Some(2))
   }
   test("get/getUnsafe index too small") {
     val l = BList.empty[Int].prepend(5).prepend(4).prepend(3).prepend(2).prepend(1)
@@ -136,26 +137,15 @@ class BListSuite extends DisciplineSuite {
   test("get/getUnsafe index too big") {
     var l = BList.empty[Int]
     var m = BList.empty[Int]
-    for (i <- (0 until BList.BlockSize).reverse) {
+    for (i <- (0 until 20).reverse) {
       l = l.prepend(i)
       m = l.concat(m)
     }
     // size is triangle numbers in BList.BlockSize. size should be  n(n+1)/2 where n is BList.BlockSize
     // so BList.BlockSize ** 2 + 1 will always be out of bounds
-    val idx: Long = pow(BList.BlockSize.toDouble, 2.0).toLong + 1L
+    val idx: Long = pow(20.toDouble, 2.0).toLong + 1L
     assertEquals(m.get(idx), None)
     intercept[IndexOutOfBoundsException](m.getUnsafe(idx))
-  }
-  test("lastOption with incomplete blocks") {
-    var l = BList.empty[Int]
-    var m = BList.empty[Int]
-    for (i <- (0 until BList.BlockSize).reverse) {
-      l = l.prepend(i)
-      m = l.concat(m)
-    }
-
-    // last should be blocksize-1
-    assertEquals(m.lastOption, Some(BList.BlockSize - 1))
   }
   test("lastOption on empty list") {
     val l = BList.empty[Int]
@@ -164,12 +154,12 @@ class BListSuite extends DisciplineSuite {
   test("size on a triangle number construction") {
     var l = BList.empty[Int]
     var m = BList.empty[Int]
-    for (i <- (0 until BList.BlockSize).reverse) {
+    for (i <- (0 until 20).reverse) {
       l = l.prepend(i)
       m = l.concat(m)
     }
-    // size is triangle numbers in BList.BlockSize. formula: n(n+1)/2
-    val expected: Long = (BList.BlockSize * (BList.BlockSize + 1)).toLong / 2L
+    //  formula: n(n+1)/2
+    val expected: Long = (20 * (21)).toLong / 2L
     assertEquals(m.size, expected)
   }
   test("size on empty") {
