@@ -41,8 +41,9 @@ import scala.util.hashing.MurmurHash3
 import scala.collection.immutable.LinearSeq
 import org.typelevel.scalaccompat.annotation._
 import scala.collection.TraversableOnce
+import java.util.concurrent.atomic.AtomicBoolean
 
-sealed abstract class BList[+A] {
+sealed trait BList[+A] {
   def uncons: Option[(A, BList[A])]
   def prepend[B >: A](a: B): BList.NonEmpty[B]
   def headOption: Option[A]
@@ -104,8 +105,8 @@ sealed abstract class BList[+A] {
 
 object BList {
   // final private[collections] val     <- these are removed for benchmarking differnt blocksizes against eachother
-  final private[collections] val BlockSize = 80
-  //var BlockSize = 54
+  // final private[collections] val BlockSize = 42
+  var BlockSize = 20
 
   case object Empty extends BList[Nothing] {
     def uncons: None.type = None
@@ -118,7 +119,7 @@ object BList {
     def headOption: None.type = None
     def tailOption: None.type = None
     def headUnsafe: Nothing = throw new NoSuchElementException // follows scala List's head
-    def tailUnsafe: BList[Nothing] = throw new NoSuchElementException  // follows scala List's tail
+    def tailUnsafe: BList[Nothing] = throw new NoSuchElementException // follows scala List's tail
     def get(idx: Long): None.type = None
     def getUnsafe(idx: Long): Nothing = throw new IndexOutOfBoundsException
     def reverse: Empty.type = Empty
@@ -151,7 +152,7 @@ object BList {
     override def hashCode(): Int = Nil.##
 
   }
-  sealed abstract class NonEmpty[+A] extends BList[A] {
+  sealed trait NonEmpty[+A] extends BList[A] {
     def head: A
     def tail: BList[A]
     def reverse: BList.NonEmpty[A]
@@ -305,9 +306,10 @@ object BList {
       extends AbstractImpl[A](offset, block)
 
   sealed abstract private class AbstractImpl[+A](val offset: Int, val block: Array[A @uncheckedVariance])
-      extends NonEmpty[A] {
+      extends AtomicBoolean(false)
+      with NonEmpty[A] { shared =>
     def tailBList: BList[A]
-    private var shared: Boolean = false
+    // private var shared: Boolean = false
 
     override def equals(other: Any): Boolean =
       other match {
@@ -322,19 +324,19 @@ object BList {
     def uncons: Some[(A, BList[A])] = {
       Some((block(offset), this.tail))
     }
+    // do this for cons too (think about it)!! TODO
+    // concurency dragons thing
     def prepend[B >: A](a: B): BList.NonEmpty[B] = {
       if (offset > 0) {
         val nextOffset = offset - 1
-        if (shared) { // forking detected
+        if (shared.compareAndSet(false, true)) { // not shared
+          block(nextOffset) = a.asInstanceOf[A]
+          Impl(nextOffset, block, tailBList)
+        } else { // shared, forking detected
           val ary = new Array[Any](BlockSize)
           System.arraycopy(block, offset, ary, offset, BlockSize - offset)
           ary(nextOffset) = a
           Impl(nextOffset, ary, tailBList)
-        }
-        else {
-          shared = true
-          block(nextOffset) = a.asInstanceOf[A]
-          Impl(nextOffset, block, tailBList)
         }
       } else {
         val ary = new Array[Any](BlockSize)
@@ -343,6 +345,7 @@ object BList {
         Impl(offset, ary, this)
       }
     }
+
     def head: A = {
       block(offset)
     }
@@ -483,19 +486,18 @@ object BList {
       loop(this).asInstanceOf[NonEmpty[B]]
     }
     def filter(p: A => Boolean): BList[A] = {
-      def go( l: BList[A], prev:Array[Any], prevOffset:Int): Eval[BList[A]] = l match {
-        case Empty                 => 
-          if (prevOffset == BlockSize){
+      def go(l: BList[A], prev: Array[Any], prevOffset: Int): Eval[BList[A]] = l match {
+        case Empty =>
+          if (prevOffset == BlockSize) {
             Eval.now(Empty) // prev is invalid
-          }
-          else {
+          } else {
             Eval.now(Impl(prevOffset, prev, Empty))
           }
         case impl: AbstractImpl[A] =>
-          
+
           var i = BlockSize - 1
           var offset_in_newblock = BlockSize
-          val newblock = new Array[Any](BlockSize) 
+          val newblock = new Array[Any](BlockSize)
           // iterate backwards
           while (i >= impl.offset) {
             if (p(impl.block(i))) {
@@ -506,20 +508,26 @@ object BList {
           }
 
           if (offset_in_newblock == BlockSize) { // all elements were filtered out, node is skipped
-             Eval.defer(go(impl.tailBList, prev, prevOffset))
-          }
-          else if ((BlockSize - offset_in_newblock) + (BlockSize - prevOffset) <= BlockSize){ // improve arithmetic
+            Eval.defer(go(impl.tailBList, prev, prevOffset))
+          } else if ((BlockSize - offset_in_newblock) + (BlockSize - prevOffset) <= BlockSize) { // improve arithmetic
             // combine prev with new and rec call
-            System.arraycopy(prev, prevOffset, newblock, offset_in_newblock - (BlockSize -  prevOffset), BlockSize -  prevOffset)
-            Eval.defer(go(impl.tailBList, newblock, offset_in_newblock - (BlockSize -  prevOffset)))
-          }
-          else {
+            System.arraycopy(prev,
+                             prevOffset,
+                             newblock,
+                             offset_in_newblock - (BlockSize - prevOffset),
+                             BlockSize - prevOffset
+            )
+            Eval.defer(go(impl.tailBList, newblock, offset_in_newblock - (BlockSize - prevOffset)))
+          } else {
             // add previous to acc and make rec call
             Eval.defer(go(impl.tailBList, newblock, offset_in_newblock)).map(Impl(prevOffset, prev, _))
           }
       }
 
-      go(this,new Array[Any](BlockSize),BlockSize).value // initial values for prev will not affect result because it is handled in the base case
+      go(this,
+         new Array[Any](BlockSize),
+         BlockSize
+      ).value // initial values for prev will not affect result because it is handled in the base case
     }
     def filterNot(p: A => Boolean): BList[A] = {
       filter(x => !p(x))
@@ -775,7 +783,6 @@ object BList {
       loop(this)
     }
 
-
     def iterator: Iterator[A] = new BListIterator(this)
 
     private[collections] def toStringInBlocks: String = {
@@ -850,7 +857,7 @@ object BList {
   def apply[A](elems: A*): BList[A] = {
     BList.from(elems)
     // i dont think getting the varargs array directly will help because we still need to copy it to put it in the blocks
-    // from is better than mutable builder, so not even worth it. 
+    // from is better than mutable builder, so not even worth it.
   }
 
   // BList Buffer for mutable builder is in the version specific files
@@ -949,42 +956,76 @@ object BList {
     @nowarn213("cat=deprecation")
     @nowarn3("cat=deprecation")
     def addAll(xs: TraversableOnce[A]): this.type = {
-      val iter = xs.toIterator
-      while (iter.hasNext) {
-        if (headIndex < BlockSize) { // head has space
-          headArray(headIndex) = iter.next()
-          headIndex += 1
-          while (iter.hasNext && headIndex < BlockSize) {
-            headArray(headIndex) = iter.next()
-            headIndex += 1
+      xs match {
+        case seq: IndexedSeq[A] =>
+          var i = 0
+          val n = seq.length
+          if (headIndex < BlockSize) { // head has space
+            val amt = math.min(BlockSize - headIndex, n)
+            seq.copyToArray(headArray, headIndex, amt)
+            headIndex = headIndex + amt
+            i = amt
           }
-        } else { // head is full
-          if (curIndex < BlockSize) { // current node is not full
-            while (iter.hasNext && curIndex < BlockSize) {
-              curArray(curIndex) = iter.next()
-              curIndex += 1
-            }
-          } else { // current node is full
-            // finish off the full node
-            val finishedNode = MutableImpl(0, curArray, null)
-            if (prev != null) { // have previous node point to the newly completed one
-              prev.tailBList = finishedNode
-            }
-            prev = finishedNode
+          while (i < n) { // no space in head
+            if (curIndex < BlockSize) { // current node not full
+              val amt = math.min(BlockSize - curIndex, n)
+              seq.copyToArray(curArray, curIndex, amt)
+              curIndex = curIndex + amt
+              i += amt
+            } else { // current node full, start a new one
+              val finishedNode = MutableImpl(0, curArray, null)
+              if (prev != null) { // have previous node point to the newly completed one
+                prev.tailBList = finishedNode
+              }
+              prev = finishedNode
 
-            if (tail.isEmpty) { // fill in tail field with first completed node
-              tail = prev
-            }
+              if (tail.isEmpty) { // fill in tail field with first completed node
+                tail = prev
+              }
 
-            // start new node
-            curIndex = 0
-            curArray = new Array[Any](BlockSize)
-            while (iter.hasNext && curIndex < BlockSize) {
-              curArray(curIndex) = iter.next()
-              curIndex += 1
+              // start new node
+              curIndex = 0
+              curArray = new Array[Any](BlockSize)
             }
           }
-        }
+        case _ => // default case uses iterator
+          val iter = xs.toIterator
+          while (iter.hasNext) {
+            if (headIndex < BlockSize) { // head has space
+              headArray(headIndex) = iter.next()
+              headIndex += 1
+              while (iter.hasNext && headIndex < BlockSize) {
+                headArray(headIndex) = iter.next()
+                headIndex += 1
+              }
+            } else { // head is full
+              if (curIndex < BlockSize) { // current node is not full
+                while (iter.hasNext && curIndex < BlockSize) {
+                  curArray(curIndex) = iter.next()
+                  curIndex += 1
+                }
+              } else { // current node is full
+                // finish off the full node
+                val finishedNode = MutableImpl(0, curArray, null)
+                if (prev != null) { // have previous node point to the newly completed one
+                  prev.tailBList = finishedNode
+                }
+                prev = finishedNode
+
+                if (tail.isEmpty) { // fill in tail field with first completed node
+                  tail = prev
+                }
+
+                // start new node
+                curIndex = 0
+                curArray = new Array[Any](BlockSize)
+                while (iter.hasNext && curIndex < BlockSize) {
+                  curArray(curIndex) = iter.next()
+                  curIndex += 1
+                }
+              }
+            }
+          }
       }
       this
     }
