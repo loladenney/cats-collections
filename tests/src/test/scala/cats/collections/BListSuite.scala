@@ -33,12 +33,10 @@ import scala.math.pow
 import scala.util.Random
 import cats.data.State
 
-
 class BListSuite extends DisciplineSuite {
   override def scalaCheckInitialSeed = "7bTNcKSrPdvUlNm_fJry4aTO89pk7TzTVJOnhKCdlWL="
   override def scalaCheckTestParameters: Test.Parameters =
     DefaultScalaCheckPropertyCheckConfig.default
-    //super.scalaCheckTestParameters.withMaxSize(BList.BlockSize * 5)
 
   checkAll("BList.FunctorLaws", FunctorTests[BList].functor[Int, Int, String])
   checkAll("BList.SemigroupKLaws", SemigroupKTests[BList].semigroupK[Int])
@@ -78,7 +76,6 @@ class BListSuite extends DisciplineSuite {
     val n = m.concat(l)
 
     n.uncons match {
-      // case None         => fail("should not be empty")
       case Some((h, t)) =>
         assertEquals(h, m.head)
         assertEquals(t, l)
@@ -159,7 +156,7 @@ class BListSuite extends DisciplineSuite {
       m = l.concat(m)
     }
     //  formula: n(n+1)/2
-    val expected: Long = (20 * (21)).toLong / 2L
+    val expected: Long = (20 * 21).toLong / 2L
     assertEquals(m.size, expected)
   }
   test("size on empty") {
@@ -172,7 +169,6 @@ class BListSuite extends DisciplineSuite {
     val m = l.prepend(0)
 
     m.uncons match {
-      // case None         => fail("should not be empty")
       case Some((h, t)) =>
         assertEquals(h, 0)
         assertEquals(t, l)
@@ -321,6 +317,11 @@ class BListSuite extends DisciplineSuite {
   }
 
   test("addAll mutable builder tests") {
+    val builder = BList.newBuilder[Int]
+    builder ++= (0 until 100).toList
+    assertEquals(builder.result(), BList.from(0 until 100))
+  }
+  test("addAll mutable builder tests for IndexedSeq (Range)") {
     val builder = BList.newBuilder[Int]
     builder ++= (0 until 100)
     assertEquals(builder.result(), BList.from(0 until 100))
@@ -522,10 +523,4 @@ class BListSuite extends DisciplineSuite {
   property("reverse matches the reverse in toListReverse")(forAll { (bList: BList[Int]) =>
     assertEquals(bList.reverse.toList, bList.toListReverse)
   })
-
-  // property("generator")(forAll { (xs: BList[Int]) =>
-  //   println(xs.size)
-  //   println(xs.toStringInBlocks)
-  // })
-
 }

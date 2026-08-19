@@ -104,9 +104,7 @@ sealed trait BList[+A] {
 }
 
 object BList {
-  // final private[collections] val     <- these are removed for benchmarking differnt blocksizes against eachother
-  // final private[collections] val BlockSize = 42
-  var BlockSize = 20
+  final private[collections] val BlockSize = 24
 
   case object Empty extends BList[Nothing] {
     def uncons: None.type = None
@@ -212,9 +210,6 @@ object BList {
                 case nonemptytail: AbstractImpl[A] =>
                   arg0 match {
                     case x: StackSafeMonad[G] => // optimization described in issue #4480
-                      // could traverse it as a chain and then just convert that to BList through iterator idk
-                      // i wonder if this is faster because of all the conversions
-                      // this implementation follows the one taken in #4498, building a Chain
                       Eval.now(
                         x.map(
                           fa.iterator
@@ -230,12 +225,10 @@ object BList {
                     case _ =>
                       val traversedArray =
                         traverseArray(impl.block.slice(impl.offset, BlockSize)).asInstanceOf[G[Array[B]]]
-
                       Eval.defer(loop(nonemptytail)).map { tailB =>
                         arg0.map2(traversedArray, tailB) { (arrayB, tailB) =>
                           Impl(impl.offset, new Array[Any](impl.offset) ++ arrayB, tailB)
                         }
-
                       }
                   }
               }
@@ -295,7 +288,6 @@ object BList {
       new MutableImpl(offset, block.asInstanceOf[Array[A]], tailBList)
     def unapply[A](l: MutableImpl[A]): Some[(Int, Array[A], BList[A])] =
       Some((l.offset, l.block, l.tailBList))
-
   }
 
   private class MutableImpl[+A](offset: Int,
@@ -309,7 +301,6 @@ object BList {
       extends AtomicBoolean(false)
       with NonEmpty[A] { shared =>
     def tailBList: BList[A]
-    // private var shared: Boolean = false
 
     override def equals(other: Any): Boolean =
       other match {
@@ -324,8 +315,7 @@ object BList {
     def uncons: Some[(A, BList[A])] = {
       Some((block(offset), this.tail))
     }
-    // do this for cons too (think about it)!! TODO
-    // concurency dragons thing
+
     def prepend[B >: A](a: B): BList.NonEmpty[B] = {
       if (offset > 0) {
         val nextOffset = offset - 1
@@ -410,9 +400,11 @@ object BList {
         case impl: AbstractImpl[A] @unchecked => // strategy: prepend blocks with reversed arrays
           val ary = impl.block.clone() // zero-ed out memory is consistent under reversal
           var i: Int = impl.offset
+          var end: Int = BlockSize - 1
           while (i < BlockSize) {
-            ary(i) = impl.block(BlockSize - 1 - (i - offset))
+            ary(i) = impl.block(end)
             i += 1
+            end -= 1
           }
           go(impl.tailBList, Impl(impl.offset, ary, acc))
       }
@@ -509,7 +501,7 @@ object BList {
 
           if (offset_in_newblock == BlockSize) { // all elements were filtered out, node is skipped
             Eval.defer(go(impl.tailBList, prev, prevOffset))
-          } else if ((BlockSize - offset_in_newblock) + (BlockSize - prevOffset) <= BlockSize) { // improve arithmetic
+          } else if ((BlockSize - offset_in_newblock) + (BlockSize - prevOffset) <= BlockSize) {
             // combine prev with new and rec call
             System.arraycopy(prev,
                              prevOffset,
@@ -524,10 +516,7 @@ object BList {
           }
       }
 
-      go(this,
-         new Array[Any](BlockSize),
-         BlockSize
-      ).value // initial values for prev will not affect result because it is handled in the base case
+      go(this, new Array[Any](BlockSize), BlockSize).value
     }
     def filterNot(p: A => Boolean): BList[A] = {
       filter(x => !p(x))
@@ -559,9 +548,7 @@ object BList {
           }
       }
       go(this).value
-
     }
-
     def foldLeft[B](acc: B)(fn: (B, A) => B): B = {
       @tailrec
       def loop(acc: B, l: BList[A]): B =
@@ -654,11 +641,10 @@ object BList {
             if (n <= 0) {
               Eval.now(Empty)
             } else if (n >= BlockSize - impl.offset) {
-              // Impl(offset, block, tailBList.take(n - (BlockSize - offset)))
               Eval.defer(go(n - (BlockSize - impl.offset), impl.tailBList)).map(Impl(impl.offset, impl.block, _))
             } else {
               val ary = new Array[Any](BlockSize)
-              System.arraycopy(impl.block, impl.offset, ary, BlockSize - n, n) // safe conversion 0<n<BlockSize
+              System.arraycopy(impl.block, impl.offset, ary, BlockSize - n, n)
               Eval.now(Impl(BlockSize - n, ary, Empty))
             }
         }
@@ -702,7 +688,6 @@ object BList {
         }
       }
 
-      // for now, the only optimization is checking if either are empty
       l2 match {
         case Empty              => this
         case _: AbstractImpl[_] => go(this).value
@@ -833,7 +818,7 @@ object BList {
     final private class BListSeq(private val xs: AbstractImpl[A @uncheckedVariance]) extends LinearSeq[A] {
       override def apply(i: Int): A = xs.getUnsafe(i.toLong)
       override def iterator: Iterator[A] = new BListIterator(xs)
-      override def length: Int = xs.size.toInt // has to be an int so I cast
+      override def length: Int = xs.size.toInt
       override def head: A = xs.head
       override def tail: LinearSeq[A] = {
         xs.drop(1) match {
@@ -856,11 +841,8 @@ object BList {
 
   def apply[A](elems: A*): BList[A] = {
     BList.from(elems)
-    // i dont think getting the varargs array directly will help because we still need to copy it to put it in the blocks
-    // from is better than mutable builder, so not even worth it.
   }
 
-  // BList Buffer for mutable builder is in the version specific files
   // behaviour is undefined after result is called, same as for ListBuffer
   final class BListBuffer[A] {
 
@@ -911,9 +893,6 @@ object BList {
     }
 
     def result(): BList[A] = {
-      // headContent's int is NOT offset for that block.
-      // the final blocks's array must also be shifted to the right and the offset shoild be fixed.
-      // all other blocks have their offset set to 0 when they are full
       var finalheadary = headArray
       var finalheadoffset = 0
 
@@ -921,7 +900,7 @@ object BList {
         Empty
       } else { // result is nonEmpty
         if (headIndex < BlockSize) { // head is incomplete
-          // shift stuff over in the head by ( BlockSize - headContents._1 ) spaces and set offset
+          // shift elmts over the be right-aligned in the array
           finalheadary = new Array[Any](BlockSize)
           System.arraycopy(headArray, 0, finalheadary, BlockSize - headIndex, headIndex)
           finalheadoffset = BlockSize - headIndex
@@ -956,76 +935,42 @@ object BList {
     @nowarn213("cat=deprecation")
     @nowarn3("cat=deprecation")
     def addAll(xs: TraversableOnce[A]): this.type = {
-      xs match {
-        case seq: IndexedSeq[A] =>
-          var i = 0
-          val n = seq.length
-          if (headIndex < BlockSize) { // head has space
-            val amt = math.min(BlockSize - headIndex, n)
-            seq.copyToArray(headArray, headIndex, amt)
-            headIndex = headIndex + amt
-            i = amt
+      val iter = xs.toIterator
+      while (iter.hasNext) {
+        if (headIndex < BlockSize) { // head has space
+          headArray(headIndex) = iter.next()
+          headIndex += 1
+          while (iter.hasNext && headIndex < BlockSize) {
+            headArray(headIndex) = iter.next()
+            headIndex += 1
           }
-          while (i < n) { // no space in head
-            if (curIndex < BlockSize) { // current node not full
-              val amt = math.min(BlockSize - curIndex, n)
-              seq.copyToArray(curArray, curIndex, amt)
-              curIndex = curIndex + amt
-              i += amt
-            } else { // current node full, start a new one
-              val finishedNode = MutableImpl(0, curArray, null)
-              if (prev != null) { // have previous node point to the newly completed one
-                prev.tailBList = finishedNode
-              }
-              prev = finishedNode
+        } else { // head is full
+          if (curIndex < BlockSize) { // current node is not full
+            while (iter.hasNext && curIndex < BlockSize) {
+              curArray(curIndex) = iter.next()
+              curIndex += 1
+            }
+          } else { // current node is full
+            // finish off the full node
+            val finishedNode = MutableImpl(0, curArray, null)
+            if (prev != null) { // have previous node point to the newly completed one
+              prev.tailBList = finishedNode
+            }
+            prev = finishedNode
 
-              if (tail.isEmpty) { // fill in tail field with first completed node
-                tail = prev
-              }
+            if (tail.isEmpty) { // fill in tail field with first completed node
+              tail = prev
+            }
 
-              // start new node
-              curIndex = 0
-              curArray = new Array[Any](BlockSize)
+            // start new node
+            curIndex = 0
+            curArray = new Array[Any](BlockSize)
+            while (iter.hasNext && curIndex < BlockSize) {
+              curArray(curIndex) = iter.next()
+              curIndex += 1
             }
           }
-        case _ => // default case uses iterator
-          val iter = xs.toIterator
-          while (iter.hasNext) {
-            if (headIndex < BlockSize) { // head has space
-              headArray(headIndex) = iter.next()
-              headIndex += 1
-              while (iter.hasNext && headIndex < BlockSize) {
-                headArray(headIndex) = iter.next()
-                headIndex += 1
-              }
-            } else { // head is full
-              if (curIndex < BlockSize) { // current node is not full
-                while (iter.hasNext && curIndex < BlockSize) {
-                  curArray(curIndex) = iter.next()
-                  curIndex += 1
-                }
-              } else { // current node is full
-                // finish off the full node
-                val finishedNode = MutableImpl(0, curArray, null)
-                if (prev != null) { // have previous node point to the newly completed one
-                  prev.tailBList = finishedNode
-                }
-                prev = finishedNode
-
-                if (tail.isEmpty) { // fill in tail field with first completed node
-                  tail = prev
-                }
-
-                // start new node
-                curIndex = 0
-                curArray = new Array[Any](BlockSize)
-                while (iter.hasNext && curIndex < BlockSize) {
-                  curArray(curIndex) = iter.next()
-                  curIndex += 1
-                }
-              }
-            }
-          }
+        }
       }
       this
     }
@@ -1038,7 +983,6 @@ object BList {
 
   }
 
-  // from is implemented in BListCompatCompanion because 2.12 does not support IterableOnce
   @nowarn213("cat=deprecation")
   @nowarn3("cat=deprecation")
   def from[A](xs: TraversableOnce[A]): BList[A] = {
@@ -1069,7 +1013,8 @@ object BList {
   def newBuilder[A]: BListBuffer[A] =
     new BListBuffer[A]
 
-  // typeclasses stuff
+  // Typeclasses
+
   implicit def eqBList[B]: Eq[BList[B]] =
     new Eq[BList[B]] {
       def eqv(xs: BList[B], ys: BList[B]): Boolean = xs.equals(ys)
@@ -1096,7 +1041,6 @@ object BList {
         fa match {
           case Empty                 => arg0.pure(BList.empty)
           case impl: AbstractImpl[A] =>
-            // we use the nonempty implementatoin
             NonEmpty.catsCollectionNonEmptyBListInstances.nonEmptyTraverse(impl)(f)(arg0).asInstanceOf[G[BList[B]]]
         }
       override def traverseVoid[G[_], A, B](fa: BList[A])(f: A => G[B])(implicit arg0: Applicative[G]): G[Unit] = {
@@ -1130,11 +1074,8 @@ object BList {
           case Empty                                       => ()
           case BList.NonEmpty(BList.Empty, tail)           => go(tail.asInstanceOf[BList[BList[Either[A, B]]]])
           case BList.NonEmpty(impl: AbstractImpl[_], tail) => {
-            // loop over block, progressing to next element when right is reached
             var curoffset = impl.offset
-            var prefix: BList[BList[Either[A, B]]] = BList(
-              impl.tailBList.asInstanceOf[BList[Either[A, B]]]
-            ) // holds the prefix of the list that goes to the next rec call
+            var prefix: BList[BList[Either[A, B]]] = BList(impl.tailBList.asInstanceOf[BList[Either[A, B]]])
             while (curoffset < BlockSize) {
               impl
                 .block(curoffset)
@@ -1144,10 +1085,8 @@ object BList {
                   curoffset += 1
                 case Left(a_prime) =>
                   if (curoffset >= BlockSize - 1) {
-                    // go(f(a_prime) :: impl.tailBList :: tail
                     prefix = BList(f(a_prime), impl.tailBList.asInstanceOf[BList[Either[A, B]]])
                   } else {
-                    // go(f(a_prime) :: Impl(curoffset+1, impl.block, impl.tailBList) :: tail)
                     prefix = BList(f(a_prime),
                                    Impl(curoffset + 1, impl.block, impl.tailBList).asInstanceOf[BList[Either[A, B]]]
                     )
