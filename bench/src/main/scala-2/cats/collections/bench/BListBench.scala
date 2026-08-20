@@ -26,14 +26,32 @@ import org.openjdk.jmh.annotations._
 import org.openjdk.jmh.infra.Blackhole
 import scala.util.Random
 
-import scala.annotation.tailrec
-
 @State(Scope.Thread)
 class BListBench {
   @Param(Array("100", "1000", "10000"))
   var n: Int = _
 
-  val arr: Array[String] =  Array("hello","hi","corvid","purple","navel","tv","32","beach","rocks","town","coast","tattoo","vacuum","bug","big","1604932960","mine","L","blist","end")
+  val arr: Array[String] = Array("hello",
+                                 "hi",
+                                 "corvid",
+                                 "purple",
+                                 "navel",
+                                 "tv",
+                                 "32",
+                                 "beach",
+                                 "rocks",
+                                 "town",
+                                 "coast",
+                                 "tattoo",
+                                 "vacuum",
+                                 "bug",
+                                 "big",
+                                 "1604932960",
+                                 "mine",
+                                 "L",
+                                 "blist",
+                                 "end"
+  )
   var bList: BList[String] = _
   var list: List[String] = _
   var vector: Vector[String] = _
@@ -51,11 +69,11 @@ class BListBench {
     bh.consume(bList.map(x => x + "3"))
   }
   @Benchmark
-  def  map_List(bh: Blackhole): Unit = {
+  def map_List(bh: Blackhole): Unit = {
     bh.consume(list.map(x => x + "3"))
   }
   @Benchmark
-  def  map_Vector(bh: Blackhole): Unit = {
+  def map_Vector(bh: Blackhole): Unit = {
     bh.consume(vector.map(x => x + "3"))
   }
 
@@ -74,7 +92,8 @@ class BListBench {
     for (i <- 1 until 10) {
       xs = xs ++ list.take(n / i)
     }
-    bh.consume(xs)  }
+    bh.consume(xs)
+  }
   @Benchmark
   def concat_Vector(bh: Blackhole): Unit = {
     var xs = vector
@@ -244,13 +263,12 @@ class BListBench {
     bh.consume(vector.foldLeft("")((acc, a) => acc + a))
   }
 
-
   // todo split in 2
   // builder AddOne
   @Benchmark
   def addOne_B_List(bh: Blackhole): Unit = {
     val builder = BList.newBuilder[String]
-    for (_ <- 0 until (n)) {
+    for (_ <- 0 until n) {
       builder += arr(Random.nextInt(20))
     }
     bh.consume(builder.result())
@@ -258,7 +276,7 @@ class BListBench {
   @Benchmark
   def addOne_List(bh: Blackhole): Unit = {
     val builder = List.newBuilder[String]
-    for (_ <- 0 until (n)) {
+    for (_ <- 0 until n) {
       builder += arr(Random.nextInt(20))
     }
     bh.consume(builder.result())
@@ -266,12 +284,12 @@ class BListBench {
   @Benchmark
   def addOne_Vector(bh: Blackhole): Unit = {
     val builder = Vector.newBuilder[String]
-    for (_ <- 0 until (n)) {
+    for (_ <- 0 until n) {
       builder += arr(Random.nextInt(20))
     }
     bh.consume(builder.result())
   }
-  
+
   // builder AddAll
   @Benchmark
   def addAll_B_List(bh: Blackhole): Unit = {
