@@ -461,21 +461,19 @@ object BList {
       }
       loop(this, 0L)
     }
-    // stack safe version
     def map[B](fn: A => B): BList.NonEmpty[B] = {
-      val builder = BList.newBuilder[B]
-      @tailrec
-      def loop(l: BList[A]): BList[B] = {
+      def loop(l: BList[A]): Eval[BList[B]] = {
         l match {
-          case Empty                 => builder.result()
+          case Empty                 => Eval.now(Empty)
           case impl: AbstractImpl[A] =>
+            val newblock = new Array[Any](BlockSize)
             for (i <- impl.offset until BlockSize) {
-              builder += fn(impl.block(i))
+              newblock(i) = fn(impl.block(i))
             }
-            loop(impl.tailBList)
+            Eval.defer(loop(impl.tailBList).map(Impl(impl.offset, newblock, _)))
         }
       }
-      loop(this).asInstanceOf[NonEmpty[B]]
+      loop(this).value.asInstanceOf[NonEmpty[B]]
     }
     def filter(p: A => Boolean): BList[A] = {
       def go(l: BList[A], prev: Array[Any], prevOffset: Int): Eval[BList[A]] = l match {

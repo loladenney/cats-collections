@@ -33,115 +33,74 @@ class BListBench {
   @Param(Array("100", "1000", "10000"))
   var n: Int = _
 
-  var bList: BList[Int] = _
-  var list: List[Int] = _
-  var vector: Vector[Int] = _
+  val arr: Array[String] =  Array("hello","hi","corvid","purple","navel","tv","32","beach","rocks","town","coast","tattoo","vacuum","bug","big","1604932960","mine","L","blist","end")
+  var bList: BList[String] = _
+  var list: List[String] = _
+  var vector: Vector[String] = _
 
   @Setup
   def setup(): Unit = {
-    list = List.fill(n)(Random.nextInt(20) + 1)
+    list = List.fill(n)(arr(Random.nextInt(20)))
     bList = BList.fromList(list)
     vector = list.toVector
   }
 
-  // contrived benchmark #1
+  // map
   @Benchmark
-  def cb1_B_List(bh: Blackhole): Unit = {
-    bh.consume(bList.map(x => x * 3).filter(x => x % 4 != 0).foldLeft(0)((a, b) => a + b))
+  def map_B_List(bh: Blackhole): Unit = {
+    bh.consume(bList.map(x => x + "3"))
   }
   @Benchmark
-  def cb1List(bh: Blackhole): Unit = {
-    bh.consume(list.map(x => x * 3).filter(x => x % 4 != 0).foldLeft(0)((a, b) => a + b))
+  def  map_List(bh: Blackhole): Unit = {
+    bh.consume(list.map(x => x + "3"))
   }
   @Benchmark
-  def cb1Vector(bh: Blackhole): Unit = {
-    bh.consume(vector.map(x => x * 3).filter(x => x % 4 != 0).foldLeft(0)((a, b) => a + b))
-  }
-
-  // contrived benchmark #2
-  @Benchmark
-  def cb2_B_List(bh: Blackhole): Unit = {
-    val builder = BList.newBuilder[Int]
-    builder ++= list
-    builder ++= list.take(n / 3)
-    builder ++= list.drop(n / 3)
-    builder ++= list
-    for (i <- 0 until (n / 4)) {
-      builder += i
-    }
-    bh.consume(builder.result().map(x => x * 3).map(x => x + 2))
-  }
-  @Benchmark
-  def cb2List(bh: Blackhole): Unit = {
-    val builder = List.newBuilder[Int]
-    builder ++= list
-    builder ++= list.take(n / 3)
-    builder ++= list.drop(n / 3)
-    builder ++= list
-    for (i <- 0 until (n / 4)) {
-      builder += i
-    }
-    bh.consume(builder.result().map(x => x * 3).map(x => x + 2))
-  }
-  @Benchmark
-  def cb2Vector(bh: Blackhole): Unit = {
-    val builder = Vector.newBuilder[Int]
-    builder ++= list
-    builder ++= list.take(n / 3)
-    builder ++= list.drop(n / 3)
-    builder ++= list
-    for (i <- 0 until (n / 4)) {
-      builder += i
-    }
-    bh.consume(builder.result().map(x => x * 3).map(x => x + 2))
+  def  map_Vector(bh: Blackhole): Unit = {
+    bh.consume(vector.map(x => x + "3"))
   }
 
-  // contrived benchmark #3
+  // concat
   @Benchmark
-  def cb3_B_List(bh: Blackhole): Unit = {
+  def concat_B_List(bh: Blackhole): Unit = {
     var xs = bList
     for (i <- 1 until 10) {
       xs = xs ++ bList.take(n / i)
     }
-    bh.consume(xs.map(x => x * 3).map(x => x + 2))
+    bh.consume(xs)
   }
   @Benchmark
-  def cb3List(bh: Blackhole): Unit = {
+  def concat_List(bh: Blackhole): Unit = {
     var xs = list
     for (i <- 1 until 10) {
       xs = xs ++ list.take(n / i)
     }
-    bh.consume(xs.map(x => x * 3).map(x => x + 2))
-  }
+    bh.consume(xs)  }
   @Benchmark
-  def cb3Vector(bh: Blackhole): Unit = {
+  def concat_Vector(bh: Blackhole): Unit = {
     var xs = vector
     for (i <- 1 until 10) {
       xs = xs ++ vector.take(n / i)
     }
-    bh.consume(xs.map(x => x * 3).map(x => x + 2))
+    bh.consume(xs)
   }
 
-  // contrived benchmark #4
+  // reverse
   @Benchmark
-  def cb4_B_List(bh: Blackhole): Unit = {
-    val xs = bList ++ bList
-    bh.consume(xs.reverse.map(x => x * 3).map(x => x + 2).reverse)
+  def reverse_B_List(bh: Blackhole): Unit = {
+    bh.consume(bList.reverse)
   }
   @Benchmark
-  def cb4List(bh: Blackhole): Unit = {
-    val xs = list ++ list
-    bh.consume(xs.reverse.map(x => x * 3).map(x => x + 2).reverse)
+  def reverse_List(bh: Blackhole): Unit = {
+    bh.consume(list.reverse)
   }
   @Benchmark
-  def cb4Vector(bh: Blackhole): Unit = {
-    val xs = vector ++ vector
-    bh.consume(xs.reverse.map(x => x * 3).map(x => x + 2).reverse)
+  def reverse_Vector(bh: Blackhole): Unit = {
+    bh.consume(vector.reverse)
   }
 
-  // contrived benchmark #5
+  // random access
   @Benchmark
-  def cb5_B_List(bh: Blackhole): Unit = {
+  def random_access_B_List(bh: Blackhole): Unit = {
     var x = 0
     for (_ <- 0 until 100) {
       x = Random.nextInt(n)
@@ -149,7 +108,7 @@ class BListBench {
     }
   }
   @Benchmark
-  def cb5List(bh: Blackhole): Unit = {
+  def random_access_List(bh: Blackhole): Unit = {
     var x = 0
     for (_ <- 0 until 100) {
       x = Random.nextInt(n)
@@ -157,7 +116,7 @@ class BListBench {
     }
   }
   @Benchmark
-  def cb5Vector(bh: Blackhole): Unit = {
+  def random_access_Vector(bh: Blackhole): Unit = {
     var x = 0
     for (_ <- 0 until 100) {
       x = Random.nextInt(n)
@@ -165,9 +124,9 @@ class BListBench {
     }
   }
 
-  // contrived benchmark #6
+  // take and drop
   @Benchmark
-  def cb6_B_List(bh: Blackhole): Unit = {
+  def takedrop_B_List(bh: Blackhole): Unit = {
     var x = 0
     for (_ <- 0 until 30) {
       x = Random.nextInt(n)
@@ -175,12 +134,12 @@ class BListBench {
       bh.consume(bList.drop(n))
     }
     for (_ <- 0 until 10) {
-      bh.consume(bList.takeWhile(_ < 19))
-      bh.consume(bList.dropWhile(_ > 0))
+      bh.consume(bList.takeWhile(_.length < 10))
+      bh.consume(bList.dropWhile(_.length > 4))
     }
   }
   @Benchmark
-  def cb6List(bh: Blackhole): Unit = {
+  def takedrop_List(bh: Blackhole): Unit = {
     var x = 0
     for (_ <- 0 until 30) {
       x = Random.nextInt(n)
@@ -188,12 +147,12 @@ class BListBench {
       bh.consume(list.drop(n))
     }
     for (_ <- 0 until 10) {
-      bh.consume(list.takeWhile(_ < 19))
-      bh.consume(list.dropWhile(_ > 0))
+      bh.consume(list.takeWhile(_.length < 10))
+      bh.consume(list.dropWhile(_.length > 4))
     }
   }
   @Benchmark
-  def cb6Vector(bh: Blackhole): Unit = {
+  def takedrop_Vector(bh: Blackhole): Unit = {
     var x = 0
     for (_ <- 0 until 30) {
       x = Random.nextInt(n)
@@ -201,8 +160,8 @@ class BListBench {
       bh.consume(vector.drop(n))
     }
     for (_ <- 0 until 10) {
-      bh.consume(vector.takeWhile(_ < 19))
-      bh.consume(vector.dropWhile(_ > 0))
+      bh.consume(vector.takeWhile(_.length < 10))
+      bh.consume(vector.dropWhile(_.length > 4))
     }
   }
 
@@ -246,100 +205,99 @@ class BListBench {
 
   // prepending benchmarks
   @Benchmark
-  def blistprepend(bh: Blackhole): Unit = {
-    var b: BList[Int] = BList.empty
+  def prepend_BList(bh: Blackhole): Unit = {
+    var b: BList[String] = bList
     for (_ <- 0 until n) {
-      b = b.prepend(Random.nextInt())
+      b = b.prepend(arr(Random.nextInt(20)))
     }
     bh.consume(b)
   }
   @Benchmark
-  def listprepend(bh: Blackhole): Unit = {
-    var b: List[Int] = List.empty
+  def prepend_List(bh: Blackhole): Unit = {
+    var b: List[String] = list
     for (_ <- 0 until n) {
-      b = Random.nextInt() :: b
+      b = arr(Random.nextInt(20)) :: b
     }
     bh.consume(b)
   }
   @Benchmark
-  def vectorprepend(bh: Blackhole): Unit = {
-    var b: Vector[Int] = Vector.empty
+  def prepend_Vector(bh: Blackhole): Unit = {
+    var b: Vector[String] = vector
     for (_ <- 0 until n) {
-      b = Random.nextInt() +: b
+      b = arr(Random.nextInt(20)) +: b
     }
     bh.consume(b)
   }
 
   @Benchmark
-  def sumList(bh: Blackhole): Unit = {
-    bh.consume(list.foldLeft(0)((acc, a) => acc + a))
+  def sum_List(bh: Blackhole): Unit = {
+    bh.consume(list.foldLeft("")((acc, a) => acc + a))
   }
 
   @Benchmark
-  def sumBList(bh: Blackhole): Unit = {
-    bh.consume(bList.foldLeft(0)((acc, a) => acc + a))
+  def sum_BList(bh: Blackhole): Unit = {
+    bh.consume(bList.foldLeft("")((acc, a) => acc + a))
   }
 
   @Benchmark
-  def sumVector(bh: Blackhole): Unit = {
-    bh.consume(vector.foldLeft(0)((acc, a) => acc + a))
+  def sum_Vector(bh: Blackhole): Unit = {
+    bh.consume(vector.foldLeft("")((acc, a) => acc + a))
   }
 
-  // random access compairison
-  @Benchmark
-  def randomAccessList(bh: Blackhole): Unit = {
-    val rand = new java.util.Random(42)
-    @tailrec
-    def loop(cnt: Int, acc: Int): Int = {
-      val v = list((rand.nextInt() & Int.MaxValue) % n) + acc
-      if (cnt <= 0) v
-      else loop(cnt - 1, v)
-    }
 
-    bh.consume(loop(100, 0))
-  }
+  // todo split in 2
+  // builder AddOne
   @Benchmark
-  def randomAccessBList(bh: Blackhole): Unit = {
-    val rand = new java.util.Random(42)
-    @tailrec
-    def loop(cnt: Int, acc: Int): Int = {
-      val v = bList.getUnsafe((rand.nextInt() & Int.MaxValue).toLong % n) + acc
-      if (cnt <= 0) v
-      else loop(cnt - 1, v)
-    }
-
-    bh.consume(loop(100, 0))
-  }
-  @Benchmark
-  def randomAccessVector(bh: Blackhole): Unit = {
-    val rand = new java.util.Random(42)
-    @tailrec
-    def loop(cnt: Int, acc: Int): Int = {
-      val v = vector((rand.nextInt() & Int.MaxValue) % n) + acc
-      if (cnt <= 0) v
-      else loop(cnt - 1, v)
-    }
-
-    bh.consume(loop(100, 0))
-  }
-
-  // builder comparison
-  @Benchmark
-  def ListBuilder(bh: Blackhole): Unit = {
-    val builder = List.newBuilder[Int]
-    val list2 = list ++ list
-    list2.filter(x => x % 2 != 0).map(x => x + 1).map(x => x + 1).foreach { case x =>
-      builder += x
+  def addOne_B_List(bh: Blackhole): Unit = {
+    val builder = BList.newBuilder[String]
+    for (_ <- 0 until (n)) {
+      builder += arr(Random.nextInt(20))
     }
     bh.consume(builder.result())
   }
   @Benchmark
-  def BListBuilder(bh: Blackhole): Unit = {
-    val builder = BList.newBuilder[Int]
-    val blist2 = bList ++ bList
-    blist2.filter(x => x % 2 != 0).map(x => x + 1).map(x => x + 1).foreach { case x =>
-      builder += x
+  def addOne_List(bh: Blackhole): Unit = {
+    val builder = List.newBuilder[String]
+    for (_ <- 0 until (n)) {
+      builder += arr(Random.nextInt(20))
     }
+    bh.consume(builder.result())
+  }
+  @Benchmark
+  def addOne_Vector(bh: Blackhole): Unit = {
+    val builder = Vector.newBuilder[String]
+    for (_ <- 0 until (n)) {
+      builder += arr(Random.nextInt(20))
+    }
+    bh.consume(builder.result())
+  }
+  
+  // builder AddAll
+  @Benchmark
+  def addAll_B_List(bh: Blackhole): Unit = {
+    val builder = BList.newBuilder[String]
+    builder ++= list
+    builder ++= list.take(n / 3)
+    builder ++= list.drop(n / 3)
+    builder ++= list
+    bh.consume(builder.result())
+  }
+  @Benchmark
+  def addAll_List(bh: Blackhole): Unit = {
+    val builder = List.newBuilder[String]
+    builder ++= list
+    builder ++= list.take(n / 3)
+    builder ++= list.drop(n / 3)
+    builder ++= list
+    bh.consume(builder.result())
+  }
+  @Benchmark
+  def addAll_Vector(bh: Blackhole): Unit = {
+    val builder = Vector.newBuilder[String]
+    builder ++= list
+    builder ++= list.take(n / 3)
+    builder ++= list.drop(n / 3)
+    builder ++= list
     bh.consume(builder.result())
   }
 
