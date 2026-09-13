@@ -104,7 +104,7 @@ sealed trait BList[+A] {
 }
 
 object BList {
-  final private[collections] val BlockSize = 24
+  final private[collections] val BlockSize = 36
 
   case object Empty extends BList[Nothing] {
     def uncons: None.type = None

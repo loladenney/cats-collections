@@ -81,24 +81,30 @@ class BListBench {
   @Benchmark
   def concat_B_List(bh: Blackhole): Unit = {
     var xs = bList
-    for (i <- 1 until 10) {
+    var i = 1
+    while (i < 10) {
       xs = xs ++ bList.take(n / i)
+      i += 1
     }
     bh.consume(xs)
   }
   @Benchmark
   def concat_List(bh: Blackhole): Unit = {
     var xs = list
-    for (i <- 1 until 10) {
+    var i = 1
+    while (i < 10) {
       xs = xs ++ list.take(n / i)
+      i += 1
     }
     bh.consume(xs)
   }
   @Benchmark
   def concat_Vector(bh: Blackhole): Unit = {
     var xs = vector
-    for (i <- 1 until 10) {
+    var i = 1
+    while (i < 10) {
       xs = xs ++ vector.take(n / i)
+      i += 1
     }
     bh.consume(xs)
   }
@@ -121,25 +127,31 @@ class BListBench {
   @Benchmark
   def random_access_B_List(bh: Blackhole): Unit = {
     var x = 0
-    for (_ <- 0 until 100) {
+    var i = 0
+    while (i < 100) {
       x = Random.nextInt(n)
       bh.consume(bList.get(x.toLong))
+      i += 1
     }
   }
   @Benchmark
   def random_access_List(bh: Blackhole): Unit = {
     var x = 0
-    for (_ <- 0 until 100) {
+    var i = 0
+    while (i < 100) {
       x = Random.nextInt(n)
       bh.consume(list(x))
+      i += 1
     }
   }
   @Benchmark
   def random_access_Vector(bh: Blackhole): Unit = {
     var x = 0
-    for (_ <- 0 until 100) {
+    var i = 0
+    while (i < 100) {
       x = Random.nextInt(n)
       bh.consume(vector(x))
+      i += 1
     }
   }
 
@@ -147,40 +159,52 @@ class BListBench {
   @Benchmark
   def takedrop_B_List(bh: Blackhole): Unit = {
     var x = 0
-    for (_ <- 0 until 30) {
+    var i = 0
+    while (i < 30) {
       x = Random.nextInt(n)
       bh.consume(bList.take(n))
       bh.consume(bList.drop(n))
+      i += 1
     }
-    for (_ <- 0 until 10) {
+    i = 0
+    while (i < 10) {
       bh.consume(bList.takeWhile(_.length < 10))
       bh.consume(bList.dropWhile(_.length > 4))
+      i += 1
     }
   }
   @Benchmark
   def takedrop_List(bh: Blackhole): Unit = {
     var x = 0
-    for (_ <- 0 until 30) {
+    var i = 0
+    while (i < 30) {
       x = Random.nextInt(n)
       bh.consume(list.take(n))
       bh.consume(list.drop(n))
+      i += 1
     }
-    for (_ <- 0 until 10) {
+    i = 0
+    while (i < 10) {
       bh.consume(list.takeWhile(_.length < 10))
       bh.consume(list.dropWhile(_.length > 4))
+      i += 1
     }
   }
   @Benchmark
   def takedrop_Vector(bh: Blackhole): Unit = {
     var x = 0
-    for (_ <- 0 until 30) {
+    var i = 0
+    while (i < 30) {
       x = Random.nextInt(n)
       bh.consume(vector.take(n))
       bh.consume(vector.drop(n))
+      i += 1
     }
-    for (_ <- 0 until 10) {
+    i = 0
+    while (i < 10) {
       bh.consume(vector.takeWhile(_.length < 10))
       bh.consume(vector.dropWhile(_.length > 4))
+      i += 1
     }
   }
 
@@ -226,66 +250,75 @@ class BListBench {
   @Benchmark
   def prepend_BList(bh: Blackhole): Unit = {
     var b: BList[String] = bList
-    for (_ <- 0 until n) {
+    var i = 0
+    while (i < n) {
       b = b.prepend(arr(Random.nextInt(20)))
+      i += 1
     }
     bh.consume(b)
   }
   @Benchmark
   def prepend_List(bh: Blackhole): Unit = {
     var b: List[String] = list
-    for (_ <- 0 until n) {
+    var i = 0
+    while (i < n) {
       b = arr(Random.nextInt(20)) :: b
+      i += 1
     }
     bh.consume(b)
   }
   @Benchmark
   def prepend_Vector(bh: Blackhole): Unit = {
     var b: Vector[String] = vector
-    for (_ <- 0 until n) {
+    var i = 0
+    while (i < n) {
       b = arr(Random.nextInt(20)) +: b
+      i += 1
     }
     bh.consume(b)
-  }
-
-  @Benchmark
-  def sum_List(bh: Blackhole): Unit = {
-    bh.consume(list.foldLeft("")((acc, a) => acc + a))
   }
 
   @Benchmark
   def sum_BList(bh: Blackhole): Unit = {
     bh.consume(bList.foldLeft("")((acc, a) => acc + a))
   }
-
+  @Benchmark
+  def sum_List(bh: Blackhole): Unit = {
+    bh.consume(list.foldLeft("")((acc, a) => acc + a))
+  }
   @Benchmark
   def sum_Vector(bh: Blackhole): Unit = {
     bh.consume(vector.foldLeft("")((acc, a) => acc + a))
   }
 
-  // todo split in 2
   // builder AddOne
   @Benchmark
   def addOne_B_List(bh: Blackhole): Unit = {
     val builder = BList.newBuilder[String]
-    for (_ <- 0 until n) {
+    var i = 0
+    while (i < n) {
       builder += arr(Random.nextInt(20))
+      i += 1
     }
     bh.consume(builder.result())
   }
   @Benchmark
   def addOne_List(bh: Blackhole): Unit = {
     val builder = List.newBuilder[String]
-    for (_ <- 0 until n) {
+    var i = 0
+    while (i < n) {
       builder += arr(Random.nextInt(20))
+      i += 1
     }
     bh.consume(builder.result())
   }
   @Benchmark
   def addOne_Vector(bh: Blackhole): Unit = {
     val builder = Vector.newBuilder[String]
-    for (_ <- 0 until n) {
+    var i = 0
+    while (i < n) {
       builder += arr(Random.nextInt(20))
+      i += 1
     }
     bh.consume(builder.result())
   }
